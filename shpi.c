@@ -276,7 +276,7 @@ static int shpi_backlight_set_value(struct backlight_device *bl)
 	if (bl->props.brightness > 0)
 		shpi->last_brightness = bl->props.brightness;
 
-	return bl->props.brightness;
+	return 0;
 }
 
 
