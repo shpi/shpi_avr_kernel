@@ -4,6 +4,22 @@ SHPI ATmega/ATtiny Kernel driver
 
 in progress
 
+## building
+
+Build system and RPi kernel sources must be set up
+
+```bash
+# build module
+git clone git@github.com:shpi/shpi_avr_kernel.git
+cd shpi_avr_kernel
+make
+sudo dtc -I dts -O dtb -o /boot/overlays/shpi.dtbo shpi.dts
+
+# load module
+sudo dtoverlay /boot/overlays/shpi.dtbo
+sudo modprobe backlight
+sudo insmod shpi.ko
+```
 
 ## backlight interface
 
