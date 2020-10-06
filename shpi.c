@@ -101,6 +101,23 @@ static uint8_t CRC8_LOOKUP[] = {
 };
 
 
+static uint8_t BUFFER_ORDER[] = {
+	SHPI_READ_RELAY1,SHPI_READ_RELAY2,
+	SHPI_READ_RELAY3,SHPI_READ_D13,
+	SHPI_READ_HWB,SHPI_READ_BUZ,
+	SHPI_READ_VENT_PWM,SHPI_READ_LED_R,
+	SHPI_READ_LED_G,SHPI_READ_LED_B,
+	SHPI_READ_DISP_C,SHPI_READ_DISP_AP,
+	SHPI_READ_WATCHDOG,SHPI_READ_LED_POS,
+	SHPI_READ_FW_VERS,SHPI_READ_CRC,
+	SHPI_READ_BACKLIGHT,SHPI_READ_A0,
+	SHPI_READ_A1,SHPI_READ_A2,
+	SHPI_READ_A3,SHPI_READ_A4,
+	SHPI_READ_A5,SHPI_READ_A7,
+	SHPI_READ_VENT_RPM,SHPI_READ_VCC,
+	SHPI_READ_TEMP,SHPI_READ_RAM,
+	SHPI_READ_A7_AVG,
+};
 
 struct shpi_platform_data {
 	struct device *fbdev;
@@ -122,9 +139,7 @@ struct shpi {
 	struct i2c_client *client;
 	struct mutex lock;
 	unsigned long last_update;
-	uint16_t a4;
-	uint16_t vcc;
-	char valid;
+	uint16_t buffer[29];
 	struct shpi_platform_data *pdata;
 	struct backlight_device *bl;
 	uint8_t last_brightness;
@@ -134,7 +149,19 @@ struct shpi {
 };
 
 
+static inline uint8_t get_buffer_pos(uint8_t command)
+{
+	int i;
 
+	for(i = 0; i < (sizeof(BUFFER_ORDER) / sizeof(BUFFER_ORDER[0])); i++) {
+
+	if (command == BUFFER_ORDER[i])
+		return i;
+	}
+
+	return -ENOMEM;
+
+}
 
 static inline uint8_t crc8(uint8_t byte, uint8_t init)
 
@@ -154,13 +181,18 @@ static uint8_t shpi_read_one_byte(struct i2c_client *client, uint8_t adress, uin
 
 	ret = i2c_master_send(client, &adress, 1);
 
-	if (ret <= 0)
+	if (ret <= 0) {
+		printk(KERN_INFO "SHPI: read_one_byte, send error: %02x",adress);
 		return -EIO;
+		}
+
+	udelay(10);
 
         ret = i2c_master_recv(client, &rbuf[0], 2);
-        if (ret <= 0)
+        if (ret <= 0) {
+		printk(KERN_INFO "SHPI: read_one_byte, read error: %02x",adress);
                 return -EIO;
-
+		}
 	crc =	 crc8(rbuf[0], crc);
 
 	if (crc == rbuf[1]) {
@@ -181,20 +213,28 @@ static uint8_t shpi_read_two_bytes(struct i2c_client *client, uint8_t adress, ui
         unsigned char rbuf[3] = {0,};
         crc = crc8(adress,crc);
         ret = i2c_master_send(client, &adress, 1);
-        if (ret <= 0)
+        if (ret <= 0) {
+		printk(KERN_INFO "SHPI: read_two_bytes, send error: %02x",adress);
                 return -EIO;
+		}
+
+
+	udelay(20);
 
         ret = i2c_master_recv(client, &rbuf[0], 3);
 
-        if (ret <= 0)
-                return -EIO;
 
+        if (ret <= 0) {
+		printk(KERN_INFO "SHPI: read_two_bytes, read error: %02x",adress);
+                return -EIO;
+		}
         crc =    crc8(rbuf[0], crc);
         crc =    crc8(rbuf[1], crc);
 
-        if (crc != rbuf[2])
+        if (crc != rbuf[2]) {
+		printk(KERN_INFO "SHPI: read_two_byte, crc error: %02x",adress);
 		 return -ECOMM; /*communication error, crc error */
-
+		}
 	*buffer = rbuf[0] | (rbuf[1] << 8);
 
 
@@ -220,19 +260,22 @@ static uint8_t shpi_write_one_byte(struct i2c_client *client, uint8_t adress, ui
 
 	ret = i2c_master_send(client, wbuf, 3);
 
-        if (ret <= 0)
+        if (ret < 0){
+  		printk(KERN_INFO "SHPI: write_one_byte, send error: %02x",adress);
                 return -EIO;
+		}
 
 	ret = i2c_master_recv(client, &rbuf[0], 1);
 
-        if (ret <= 0)
+        if (ret < 0){
+		printk(KERN_INFO "SHPI: write_one_byte, receive error: %02x",adress);
                 return -EIO;
+		}
 
-
-	if (rbuf[0] != crc)
-
+	if (rbuf[0] != crc) {
+		printk(KERN_INFO "SHPI: write_one_byte, crc error: %02x",adress);
 		return -ECOMM;
-
+		}
 
 	return ret;
 }
@@ -350,6 +393,7 @@ static ssize_t shpi_relay_show(struct device *dev,
 	if (ret < 0)
 		return -EIO;
 
+
 	if (buffer == 0xFF)
 		return sprintf(buf, "1\n");
 	else
@@ -387,15 +431,17 @@ static ssize_t shpi_read_sensor_show(struct device *dev, struct device_attribute
 
 	if (attr->index != SHPI_READ_VCC)	// already scaled with VCC
 	{
-		ret = shpi_read_two_bytes(client, SHPI_READ_VCC, &shpi->vcc);
-		buffer = (shpi->vcc / 1024) * buffer;	// we scale analog inputs to VCC reference
+		buffer = (shpi->buffer[get_buffer_pos(SHPI_READ_VCC)] / 1024) * buffer;	// we scale analog inputs to VCC reference
 	}
+
+	if (ret >= 0) {
+		shpi->buffer[get_buffer_pos(attr->index)] = buffer;
+	}
+
 	mutex_unlock(&shpi->lock);
 
-	if (ret < 0)
-		return -EIO;
 
-        return sprintf(buf, "%d\n", buffer);
+        return sprintf(buf, "%d\n", shpi->buffer[get_buffer_pos(attr->index)]);
 
 }
 
