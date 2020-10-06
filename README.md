@@ -1,4 +1,4 @@
-# shpi_2a_kernel
+# shpi_avr_kernel
 SHPI ATmega/ATtiny Kernel driver
 
 
@@ -20,17 +20,17 @@ max_brightness      (31)
 
 ## led interface
 
-/sys/class/leds/ws2818-red-0/brightness (0-255)
+/sys/class/leds/ws2818-red-0/brightness (LOGO red 0-255)
 
-/sys/class/leds/ws2818-grn-0/brightness (0-255)
+/sys/class/leds/ws2818-grn-0/brightness (LOGO gree 0-255)
 
-/sys/class/leds/ws2818-blu-0/brightness (0-255) 
+/sys/class/leds/ws2818-blu-0/brightness (LOGO blue 0-255) 
 
-/sys/class/leds/ws2818-red-1/brightness
+/sys/class/leds/ws2818-red-1/brightness (SIGNAl red 0-255)
 
-/sys/class/leds/ws2818-grn-1/brightness
+/sys/class/leds/ws2818-grn-1/brightness (SIGNAL green 0-255)
 
-/sys/class/leds/ws2818-blu-1/brightness
+/sys/class/leds/ws2818-blu-1/brightness (SIGNAL blue 0-255)
 
 
 ## hwmon interface
