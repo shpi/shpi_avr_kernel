@@ -5,7 +5,7 @@ SHPI ATmega/ATtiny Kernel driver
 in progress
 
 
-## backlightinterface
+## backlight interface
 
 /sys/class/backlight/2-002a $
 
@@ -31,3 +31,13 @@ max_brightness      (31)
 /sys/class/leds/ws2818-grn-1/brightness
 
 /sys/class/leds/ws2818-blu-1/brightness
+
+
+## hwmon interface
+
+/sys/class/hwmon/hwmon*/
+
+in1_input  in3_input  in4_label  in6_input  in8_input  name	   relay2
+in0_input  in2_input  in4_input  in5_input  in7_input  in8_label  relay1  relay3
+
+
