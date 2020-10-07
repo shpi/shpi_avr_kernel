@@ -26,9 +26,9 @@
 
 #define SHPI_READ_RELAY1    	0x0D
 #define SHPI_READ_RELAY2        0x0E
-#define SHPI_READ_RELAY3        0x0F	 // used for HW RPI reset
-#define SHPI_READ_D13           0x10	 // used for GAS heater
-#define SHPI_READ_HWB           0x11
+#define SHPI_READ_RELAY3        0x0F
+#define SHPI_READ_D13           0x10	 // used for RPI hard reset
+#define SHPI_READ_HWB           0x11	// used for gas heater enable
 #define SHPI_READ_BUZ           0x12
 #define SHPI_READ_VENT_PWM      0x13
 #define SHPI_READ_LED_R     	0x14 // read RED value from LED on LED_POS
@@ -75,6 +75,8 @@
 #define SHPI_WRITE_WATCHDOG     0xA0
 #define SHPI_WRITE_LED_POS      0xA1
 #define SHPI_WRITE_CRC      	0xFE
+#define SHPI_WRITE_DFU		0xFD // sets atmega for dfu bootload vector
+
 
 static uint8_t CRC8_LOOKUP[] =
 {
@@ -195,7 +197,8 @@ static int shpi_read_one_byte(struct i2c_client *client, uint8_t adress, uint8_t
 
 	if (crc != rbuf[1])
 		{
-		printk(KERN_INFO "SHPI: read_one_byte, crc error: %02x",adress);
+		printk(KERN_INFO "SHPI: read_one_byte, crc error: %02x, %02x != %02x",adress,crc,rbuf[1]);
+
 		 return -ECOMM;    /*communication error, crc error */
 
 
@@ -237,7 +240,9 @@ static int shpi_read_two_bytes(struct i2c_client *client, uint8_t adress, uint16
 
 	if (crc != rbuf[2])
 	{
-		printk(KERN_INFO "SHPI: read_two_byte, crc error: %02x",adress);
+
+		printk(KERN_INFO "SHPI: read_two_byte, crc error: %02x, %02x != %02x",adress,crc,rbuf[2]);
+
 		return -EIO;
 	}
 
@@ -408,7 +413,69 @@ char *buf)
 	else
 		return sprintf(buf, "0\n");
 
+
+
+
 }
+
+static ssize_t shpi_fw_version_show(struct device *dev,
+struct device_attribute *da,
+char *buf)
+{
+
+        struct shpi *shpi = dev_get_drvdata(dev);
+        struct sensor_device_attribute *attr = to_sensor_dev_attr(da);
+        struct i2c_client *client = shpi->client;
+        int ret;
+        uint8_t buffer;
+
+        mutex_lock(&shpi->lock);
+        ret = shpi_read_one_byte(client, SHPI_READ_FW_VERS, &buffer);
+        mutex_unlock(&shpi->lock);
+
+        if (ret < 0)
+                return -EIO;
+
+        else {shpi->buffer[get_buffer_pos(attr->index)] = (uint16_t)buffer;}
+
+
+        return sprintf(buf, "%d\n",shpi->buffer[get_buffer_pos(attr->index)]);
+
+
+
+
+}
+
+
+
+static ssize_t shpi_vent_pwm_show(struct device *dev,
+struct device_attribute *da,
+char *buf)
+{
+
+        struct shpi *shpi = dev_get_drvdata(dev);
+        struct sensor_device_attribute *attr = to_sensor_dev_attr(da);
+        struct i2c_client *client = shpi->client;
+        int ret;
+        uint8_t buffer;
+
+        mutex_lock(&shpi->lock);
+        ret = shpi_read_one_byte(client, SHPI_READ_VENT_PWM, &buffer);
+        mutex_unlock(&shpi->lock);
+
+        if (ret < 0)
+                return -EIO;
+
+        else {shpi->buffer[get_buffer_pos(attr->index)] = (uint16_t)buffer;}
+
+
+        return sprintf(buf, "%d\n",shpi->buffer[get_buffer_pos(attr->index)]);
+
+
+
+
+}
+
 
 
 static ssize_t shpi_a4_label_show(struct device *dev,
@@ -417,12 +484,32 @@ struct device_attribute *attr, char *buf)
 	return sprintf(buf, "AIR QUALITY VOC\n");
 }
 
+static ssize_t shpi_dfu_boot_show(struct device *dev,
+struct device_attribute *attr, char *buf)
+{
+        return sprintf(buf, "BE CAREFUL, WRITE 1 TO THIS FILE AND ATMEGA STARTS IN DFU MODUS\n");
+}
+
+
+static ssize_t shpi_gasheater_enable_label_show(struct device *dev,
+struct device_attribute *attr, char *buf)
+{
+        return sprintf(buf, "VOC Sensor heater enable\n");
+}
 
 static ssize_t shpi_vcc_label_show(struct device *dev,
 struct device_attribute *attr, char *buf)
 {
 	return sprintf(buf, "VCC reference\n");
 }
+
+
+static ssize_t shpi_pwm1_label_show(struct device *dev,
+struct device_attribute *attr, char *buf)
+{
+        return sprintf(buf, "FAN PWM Speed 0-255\n");
+}
+
 
 
 static ssize_t shpi_temp1_label_show(struct device *dev,
@@ -484,6 +571,64 @@ char *buf)
 
 }
 
+static ssize_t shpi_vent_pwm_store(struct device *dev, struct device_attribute *da,
+const char *buf, size_t count)
+{
+        struct sensor_device_attribute *attr = to_sensor_dev_attr(da);
+        struct shpi *shpi = dev_get_drvdata(dev);
+        struct i2c_client *client = shpi->client;
+        int ret;
+        unsigned int readbit;
+        ret = kstrtouint(buf, 10, &readbit);
+        if (ret >=0)
+        {
+                if  (readbit < 256 && readbit > 0)
+                {
+                        mutex_lock(&shpi->lock);
+                        ret = shpi_write_one_byte(client, SHPI_WRITE_VENT_PWM, readbit);
+                        printk(KERN_INFO "SHPI: set fan : %d\n", readbit);
+                        mutex_unlock(&shpi->lock);
+                }
+                else
+                        return -EINVAL;
+                if (ret < 0)
+                        return -EIO;
+        } else {
+        return -EINVAL;
+        }
+        return count;
+}
+
+
+
+static ssize_t shpi_dfu_boot_enable(struct device *dev, struct device_attribute *da,
+const char *buf, size_t count)
+{
+        struct sensor_device_attribute *attr = to_sensor_dev_attr(da);
+        struct shpi *shpi = dev_get_drvdata(dev);
+        struct i2c_client *client = shpi->client;
+        int ret;
+        unsigned int readbit;
+        ret = kstrtouint(buf, 10, &readbit);
+        if (ret >=0)
+        {
+                if  (readbit == 1)
+                {
+                        mutex_lock(&shpi->lock);
+                        ret = shpi_write_one_byte(client, SHPI_WRITE_DFU, 0xFF);
+                        printk(KERN_INFO "SHPI: set fan : %d\n", readbit);
+                        mutex_unlock(&shpi->lock);
+                }
+                else
+                        return -EINVAL;
+                if (ret < 0)
+                        return -EIO;
+        } else {
+        return -EINVAL;
+        }
+        return count;
+}
+
 
 static ssize_t shpi_relay_store(struct device *dev, struct device_attribute *da,
 const char *buf, size_t count)
@@ -493,12 +638,9 @@ const char *buf, size_t count)
 	struct i2c_client *client = shpi->client;
 	int ret;
 	unsigned int readbit;
-
 	ret = kstrtouint(buf, 10, &readbit);
-
 	if (ret >=0)
 	{
-
 		if  (readbit == 1)
 		{
 			mutex_lock(&shpi->lock);
@@ -506,7 +648,6 @@ const char *buf, size_t count)
 			printk(KERN_INFO "SHPI: set %s : ON\n", attr->dev_attr.attr.name);
 			mutex_unlock(&shpi->lock);
 		}
-
 		else if (readbit == 0)
 		{
 			mutex_lock(&shpi->lock);
@@ -514,29 +655,34 @@ const char *buf, size_t count)
 			printk(KERN_INFO "SHPI: set %s: OFF\n", attr->dev_attr.attr.name);
 			mutex_unlock(&shpi->lock);
 		}
-
 		else
 			return -EINVAL;
-
 		if (ret < 0)
 			return -EIO;
-
 	} else {
-
 	return -EINVAL;
 	}
-
 	return count;
-
 }
+
+
+
 
 
 static SENSOR_DEVICE_ATTR_RW(relay1, shpi_relay, SHPI_READ_RELAY1);
 static SENSOR_DEVICE_ATTR_RW(relay2, shpi_relay, SHPI_READ_RELAY2);
 static SENSOR_DEVICE_ATTR_RW(relay3, shpi_relay, SHPI_READ_RELAY3);
+static SENSOR_DEVICE_ATTR_RW(gasheater_enable, shpi_relay, SHPI_READ_HWB);
+static SENSOR_DEVICE_ATTR_RW(buzzer, shpi_relay, SHPI_READ_BUZ);
+static SENSOR_DEVICE_ATTR_RW(pwm1, shpi_vent_pwm, SHPI_READ_VENT_PWM);
 static DEVICE_ATTR(in4_label, 0444, shpi_a4_label_show, NULL);
 static DEVICE_ATTR(in8_label, 0444, shpi_vcc_label_show, NULL);
 static DEVICE_ATTR(temp1_label, 0444, shpi_temp1_label_show, NULL);
+static DEVICE_ATTR(gasheater_enable_label, 0444, shpi_gasheater_enable_label_show, NULL);
+static DEVICE_ATTR(pwm1_label, 0444, shpi_pwm1_label_show, NULL);
+static DEVICE_ATTR(fw_version, 0444, shpi_fw_version_show, NULL);
+static DEVICE_ATTR(dfu_boot_enable, 0644, shpi_dfu_boot_show, shpi_dfu_boot_enable);
+
 static SENSOR_DEVICE_ATTR_RO(in0_input, shpi_read_sensor, SHPI_READ_A0);
 static SENSOR_DEVICE_ATTR_RO(in1_input, shpi_read_sensor, SHPI_READ_A1);
 static SENSOR_DEVICE_ATTR_RO(in2_input, shpi_read_sensor, SHPI_READ_A2);
@@ -554,14 +700,22 @@ static struct attribute *shpi_attrs[] =
 	&sensor_dev_attr_relay1.dev_attr.attr,
 	&sensor_dev_attr_relay2.dev_attr.attr,
 	&sensor_dev_attr_relay3.dev_attr.attr,
+        &sensor_dev_attr_buzzer.dev_attr.attr,
+        &sensor_dev_attr_gasheater_enable.dev_attr.attr,
 	&sensor_dev_attr_in0_input.dev_attr.attr,
 	&sensor_dev_attr_in1_input.dev_attr.attr,
 	&sensor_dev_attr_in2_input.dev_attr.attr,
 	&sensor_dev_attr_in3_input.dev_attr.attr,
+	&dev_attr_pwm1_label.attr,
+	&dev_attr_dfu_boot_enable.attr,
+
+	&sensor_dev_attr_pwm1.dev_attr.attr,
+        &dev_attr_fw_version.attr,
 	&dev_attr_in4_label.attr,
 	&sensor_dev_attr_in4_input.dev_attr.attr,
 	&dev_attr_in8_label.attr,
 	&dev_attr_temp1_label.attr,
+        &dev_attr_gasheater_enable_label.attr,
 	&sensor_dev_attr_in5_input.dev_attr.attr,
 	&sensor_dev_attr_in6_input.dev_attr.attr,
 	&sensor_dev_attr_in7_input.dev_attr.attr,
