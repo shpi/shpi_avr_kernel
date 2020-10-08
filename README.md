@@ -42,7 +42,7 @@ max_brightness      (31)
 
 /sys/class/leds/ws2818-blu-0/brightness (LOGO blue 0-255) 
 
-/sys/class/leds/ws2818-red-1/brightness (SIGNAl red 0-255)
+/sys/class/leds/ws2818-red-1/brightness (SIGNAL red 0-255)
 
 /sys/class/leds/ws2818-grn-1/brightness (SIGNAL green 0-255)
 
