@@ -773,6 +773,10 @@ const struct i2c_device_id *id)
 	int num_leds;
 	int i = 0;
 	struct shpi_led *led;
+	uint8_t rbuf[1];
+        uint8_t wbuf[2];
+
+
 
 	if (!i2c_check_functionality(client->adapter,
 		I2C_FUNC_I2C))
@@ -841,9 +845,6 @@ const struct i2c_device_id *id)
 		shpi, shpi_groups);
 
 	mutex_lock(&shpi->lock);
-
-	uint8_t rbuf[1];
-	uint8_t wbuf[2];
 	wbuf[0] = SHPI_READ_CRC;
 
 	ret = i2c_master_send(client, wbuf,1);
@@ -854,7 +855,7 @@ const struct i2c_device_id *id)
 
 
 
-	if (rbuf != 0xFF)
+	if (rbuf[0] != 0xFF)
 	{
 		dev_err(&client->dev, "SHPI: enabling CRC function.\n");
 		wbuf[0] = SHPI_WRITE_CRC;
