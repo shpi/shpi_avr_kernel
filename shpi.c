@@ -266,7 +266,8 @@ static int shpi_write_one_byte(struct i2c_client *client, uint8_t adress, uint8_
 	unsigned char wbuf[3] = {adress, byte, crc};
 	unsigned char rbuf[1];
 
-	ret = i2c_master_send(client, wbuf, 3);
+
+        ret = i2c_master_send(client, wbuf, 3);
 
 	if (ret < 0)
 	{
@@ -768,7 +769,6 @@ const struct i2c_device_id *id)
 	struct device *dev = &client->dev;
 	struct device   *hwmon_dev;
 	struct shpi *shpi;
-	uint8_t buf;
 	int ret = 0;
 	int num_leds;
 	int i = 0;
@@ -841,14 +841,25 @@ const struct i2c_device_id *id)
 		shpi, shpi_groups);
 
 	mutex_lock(&shpi->lock);
-	ret = shpi_read_one_byte(client, SHPI_READ_CRC, &buf);
+
+	uint8_t rbuf[1];
+	uint8_t wbuf[2];
+	wbuf[0] = SHPI_READ_CRC;
+
+	ret = i2c_master_send(client, wbuf,1);
+	ret = i2c_master_recv(client, &rbuf[0], 1);
+
 	if (ret < 0)
 		return -EIO;
 
-	if (buf != 0xFF)
+
+
+	if (rbuf != 0xFF)
 	{
-		buf = 0xFF;
-		ret = shpi_write_one_byte(client, SHPI_WRITE_CRC,buf);
+		dev_err(&client->dev, "SHPI: enabling CRC function.\n");
+		wbuf[0] = SHPI_WRITE_CRC;
+		wbuf[1] = 0xFF;
+	        ret = i2c_master_send(client, wbuf, 2);
 		if  (ret < 0)
 			return -EIO;
 	}
