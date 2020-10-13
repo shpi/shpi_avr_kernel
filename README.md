@@ -53,7 +53,55 @@ max_brightness      (31)
 
 /sys/class/hwmon/hwmon*/
 
-in1_input  in3_input  in4_label  in6_input  in8_input  name	   relay2
-in0_input  in2_input  in4_input  in5_input  in7_input  in8_label  relay1  relay3
+buzzer
 
+dfu_boot_enable
+
+gasheater_enable
+
+in1_input
+
+in4_input
+
+in6_input
+
+in8_label
+
+relay1
+
+curr1_input
+
+fan1_input
+
+gasheater_enable_label
+
+in2_input
+
+in4_label
+
+in7_input
+
+name
+
+pwm1
+
+relay2
+
+temp1_input
+
+fw_version
+
+in0_input
+
+in3_input
+
+in5_input
+
+in8_input
+
+pwm1_label
+
+relay3
+
+temp1_label
 
