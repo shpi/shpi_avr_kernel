@@ -644,7 +644,7 @@ const char *buf, size_t count)
                 {
                         mutex_lock(&shpi->lock);
                         ret = shpi_write_one_byte(client, SHPI_WRITE_DFU, 0xFF);
-                        printk(KERN_INFO "SHPI: set fan : %d\n", readbit);
+                        printk(KERN_INFO "SHPI: enable dfu modus : %d\n", readbit);
                         mutex_unlock(&shpi->lock);
                 }
                 else
@@ -799,25 +799,6 @@ const struct i2c_device_id *id)
 
 	shpi->client = client;
 
-	for (i = 0; i < (num_leds*3); i++)
-	{
-
-		led     = &shpi->leds[i];
-		led->id     = i;
-		led->shpi   = shpi;
-
-		if (i % 3 == 0) snprintf(led->name, sizeof(led->name), "ws2812-red-%d", (i/3));
-		if (i % 3 == 1) snprintf(led->name, sizeof(led->name), "ws2812-grn-%d", (i/3));
-		if (i % 3 == 2) snprintf(led->name, sizeof(led->name), "ws2812-blu-%d", (i/3));
-
-		led->ldev.name = led->name;
-		led->ldev.brightness = LED_OFF;
-		led->ldev.max_brightness = 0xff;
-		led->ldev.brightness_set_blocking = shpi_set_brightness_blocking;
-		ret = led_classdev_register(&client->dev, &led->ldev);
-
-	}
-
 	shpi->pdata = pdata;
 	shpi->num_leds = num_leds;
 	memset(&props, 0, sizeof(props));
@@ -828,21 +809,9 @@ const struct i2c_device_id *id)
 	shpi->blpower = 0;
 	shpi->last_brightness = 31;
 
-	backlight = devm_backlight_device_register(&client->dev,
-		dev_name(&client->dev),
-		&shpi->client->dev, shpi,
-		&shpi_backlight_ops, &props);
-
-	if (IS_ERR(backlight))
-	{
-		dev_err(&client->dev, "failed to register backlight\n");
-		return PTR_ERR(backlight);
-	}
 
 	mutex_init(&shpi->lock);
 
-	hwmon_dev = devm_hwmon_device_register_with_groups(dev, client->name,
-		shpi, shpi_groups);
 
 	mutex_lock(&shpi->lock);
 	wbuf[0] = SHPI_READ_CRC;
@@ -866,6 +835,45 @@ const struct i2c_device_id *id)
 	}
 
 	mutex_unlock(&shpi->lock);
+
+        hwmon_dev = devm_hwmon_device_register_with_groups(dev, client->name,
+                shpi, shpi_groups);
+
+        backlight = devm_backlight_device_register(&client->dev,
+                dev_name(&client->dev),
+                &shpi->client->dev, shpi,
+                &shpi_backlight_ops, &props);
+
+        if (IS_ERR(backlight))
+        {
+                dev_err(&client->dev, "failed to register backlight\n");
+                return PTR_ERR(backlight);
+        }
+
+
+
+       for (i = 0; i < (num_leds*3); i++)
+        {
+
+                led     = &shpi->leds[i];
+                led->id     = i;
+                led->shpi   = shpi;
+
+                if (i % 3 == 0) snprintf(led->name, sizeof(led->name), "ws2812-red-%d", (i/3));
+                if (i % 3 == 1) snprintf(led->name, sizeof(led->name), "ws2812-grn-%d", (i/3));
+                if (i % 3 == 2) snprintf(led->name, sizeof(led->name), "ws2812-blu-%d", (i/3));
+
+                led->ldev.name = led->name;
+                led->ldev.brightness = LED_OFF;
+                led->ldev.max_brightness = 0xff;
+                led->ldev.brightness_set_blocking = shpi_set_brightness_blocking;
+                ret = led_classdev_register(&client->dev, &led->ldev);
+
+        }
+
+
+
+
 
 	return PTR_ERR_OR_ZERO(hwmon_dev);
 }
