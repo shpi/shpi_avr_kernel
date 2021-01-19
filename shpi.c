@@ -54,7 +54,7 @@
 #define SHPI_READ_VCC           0x09
 #define SHPI_READ_TEMP          0x0A
 #define SHPI_READ_RAM           0x0B
-#define SHPI_READ_A7_AVG    0x17 // used for calculate AC current
+#define SHPI_READ_A7_AVG        0x17 // used for calculate AC current
 
 /* I2C write 1byte commands */
 
@@ -77,7 +77,7 @@
 #define SHPI_WRITE_DFU		0xFD 	// sets atmega for dfu bootload vector
 
 
-#define ACS712_FACTOR		173  
+#define ACS712_FACTOR		173
 #define	ACS712_SHIFT		5
 
 /* *1000 / 185  << 5  -> 185mV per A, *1000 to get milliAmps, 5 shift to avoid floating point operation */
@@ -174,38 +174,46 @@ static inline uint8_t crc8(uint8_t byte, uint8_t init)
 }
 
 
-static int shpi_read_one_byte(struct i2c_client *client, uint8_t adress, uint8_t *buffer)
+static int shpi_read_one_byte(struct i2c_client *client, uint8_t adress, uint8_t *buffer, uint8_t retries)
 {
 	int ret = 0;
 	uint8_t crc = 0;
 	unsigned char rbuf[2] = {0,};
 
 	crc = crc8(adress,crc);
-
+        udelay(2);
 	ret = i2c_master_send(client, &adress, 1);
 
 	if (ret <= 0)
 	{
-		printk(KERN_INFO "SHPI: read_one_byte, send error: %02x",adress);
-		return -EIO;
+                if (retries > 5) {
+		printk(KERN_INFO "SHPI: read_one_byte, send error address: %02x, errorcode: %02x",adress,ret);
+		return -EIO; }
+                else {  return shpi_read_one_byte(client, adress, buffer, retries+1);}
 	}
 
 	ret = i2c_master_recv(client, &rbuf[0], 2);
 
 	if (ret <= 0)
 	{
-		printk(KERN_INFO "SHPI: read_one_byte, read error: %02x",adress);
-		return -EIO;
+                if (retries > 5) {
+		printk(KERN_INFO "SHPI: read_one_byte, read error address: %02x, errorcode: %02x",adress,ret);
+		return -EIO; }
+                else {  return shpi_read_one_byte(client, adress, buffer, retries+1);}
+
 	}
 
 	crc =    crc8(rbuf[0], crc);
 
 	if (crc != rbuf[1])
 		{
-		printk(KERN_INFO "SHPI: read_one_byte, crc error: %02x, %02x != %02x",adress,crc,rbuf[1]);
+                if (retries > 5) {
+		printk(KERN_INFO "SHPI: read_one_byte, crc error address: %02x, crc: %02x != received: %02x",adress,crc,rbuf[1]);
 
 		 return -ECOMM;    /*communication error, crc error */
 
+                 }
+              else {  return shpi_read_one_byte(client, adress, buffer, retries+1);}
 
 		} 
 
@@ -216,7 +224,7 @@ static int shpi_read_one_byte(struct i2c_client *client, uint8_t adress, uint8_t
 }
 
 
-static int shpi_read_two_bytes(struct i2c_client *client, uint8_t adress, uint16_t *buffer)
+static int shpi_read_two_bytes(struct i2c_client *client, uint8_t adress, uint16_t *buffer, uint8_t retries)
 {
 	int ret = 0;
 	uint8_t crc = 0;
@@ -226,17 +234,23 @@ static int shpi_read_two_bytes(struct i2c_client *client, uint8_t adress, uint16
 	ret = i2c_master_send(client, &adress, 1);
 	if (ret <= 0)
 	{
-		printk(KERN_INFO "SHPI: read_two_bytes, send error: %02x",adress);
-		return -EIO;
+                if (retries > 5) {
+		printk(KERN_INFO "SHPI: read_two_bytes, send error: %02x, errorcode: %02x",adress, ret);
+		return -EIO;}
+                else {  return shpi_read_two_bytes(client, adress, buffer, retries+1);}
+
 	}
-	udelay(1);
+	
+
 	ret = i2c_master_recv(client, &rbuf[0], 3);
 
-	udelay(1);
+
 	if (ret <= 0)
-	{
-		printk(KERN_INFO "SHPI: read_two_bytes, read error: %02x",adress);
-		return -EIO;
+	{       if (retries > 5) {
+		printk(KERN_INFO "SHPI: read_two_bytes, read error: %02x, errorcode: %02x",adress,ret);
+		return -EIO;}
+                else {  return shpi_read_two_bytes(client, adress, buffer, retries+1);}
+
 	}
 
 	crc =    crc8(rbuf[0], crc);
@@ -245,10 +259,11 @@ static int shpi_read_two_bytes(struct i2c_client *client, uint8_t adress, uint16
 
 	if (crc != rbuf[2])
 	{
+                if (retries > 5) {
+		printk(KERN_INFO "SHPI: read_two_bytes, crc error address: %02x, crc: %02x != received: %02x",adress,crc,rbuf[2]);
+		return -ECOMM;}
+                else {  return shpi_read_two_bytes(client, adress, buffer, retries+1);}
 
-		printk(KERN_INFO "SHPI: read_two_byte, crc error: %02x, %02x != %02x",adress,crc,rbuf[2]);
-
-		return -EIO;
 	}
 
 	*buffer = (rbuf[0] | (rbuf[1] << 8));
@@ -258,7 +273,7 @@ static int shpi_read_two_bytes(struct i2c_client *client, uint8_t adress, uint16
 }
 
 
-static int shpi_write_one_byte(struct i2c_client *client, uint8_t adress, uint8_t byte)
+static int shpi_write_one_byte(struct i2c_client *client, uint8_t adress, uint8_t byte, uint8_t retries)
 {
 
 	int ret = 0;
@@ -270,23 +285,30 @@ static int shpi_write_one_byte(struct i2c_client *client, uint8_t adress, uint8_
         ret = i2c_master_send(client, wbuf, 3);
 
 	if (ret < 0)
-	{
-		printk(KERN_INFO "SHPI: write_one_byte, send error: %02x",adress);
+	{       if (retries > 5) {
+		printk(KERN_INFO "SHPI: write_one_byte, send error: %02x, errorcode: %02x",adress,ret);
 		return -EIO;
+                }
+                else {  return shpi_write_one_byte(client, adress, byte, retries+1);}
+
 	}
 
 	ret = i2c_master_recv(client, &rbuf[0], 1);
 
 	if (ret < 0)
 	{
-		printk(KERN_INFO "SHPI: write_one_byte, receive error: %02x",adress);
-		return -EIO;
+                if (retries > 5) {
+		printk(KERN_INFO "SHPI: write_one_byte, receive error: %02x, errorcode: %02x",adress,ret);
+		return -EIO; }
+                else {  return shpi_write_one_byte(client, adress, byte, retries+1);}
+
 	}
 
 	if (rbuf[0] != crc)
-	{
+	{       if (retries > 5) {
 		printk(KERN_INFO "SHPI: write_one_byte, crc error: %02x",adress);
-		return -ECOMM;
+		return -ECOMM; }
+                else {  return shpi_write_one_byte(client, adress, byte, retries+1);}
 	}
 
 	return ret;
@@ -304,10 +326,10 @@ enum led_brightness brightness)
 
 	id = led->id;
 	mutex_lock(&shpi->lock);
-	ret = shpi_write_one_byte(client, SHPI_WRITE_LED_POS,  (id/3));
-	if (id % 3 == 0) ret = shpi_write_one_byte(client, SHPI_WRITE_LED_R, (char)ldev->brightness );
-	if (id % 3 == 1) ret = shpi_write_one_byte(client, SHPI_WRITE_LED_G, (char)ldev->brightness );
-	if (id % 3 == 2) ret = shpi_write_one_byte(client, SHPI_WRITE_LED_B, (char)ldev->brightness );
+	ret = shpi_write_one_byte(client, SHPI_WRITE_LED_POS,  (id/3), 0);
+	if (id % 3 == 0) ret = shpi_write_one_byte(client, SHPI_WRITE_LED_R, (char)ldev->brightness, 0 );
+	if (id % 3 == 1) ret = shpi_write_one_byte(client, SHPI_WRITE_LED_G, (char)ldev->brightness, 0 );
+	if (id % 3 == 2) ret = shpi_write_one_byte(client, SHPI_WRITE_LED_B, (char)ldev->brightness, 0 );
 	mutex_unlock(&shpi->lock);
 
 	if (ret <0)
@@ -323,7 +345,7 @@ static int shpi_backlight_set_value(struct backlight_device *bl)
 	struct i2c_client *client = shpi->client;
 	int ret;
 	mutex_lock(&shpi->lock);
-	ret = shpi_write_one_byte(client, SHPI_WRITE_BACKLIGHT, bl->props.brightness);
+	ret = shpi_write_one_byte(client, SHPI_WRITE_BACKLIGHT, bl->props.brightness, 0);
 	mutex_unlock(&shpi->lock);
 
 	if (ret < 0)
@@ -346,10 +368,10 @@ static int shpi_backlight_update_status(struct backlight_device *bl)
 	{
 		bl->props.brightness = 0;
 		shpi->blpower = 1;
+		
 		shpi_backlight_set_value(bl);
-		mutex_lock(&shpi->lock);
-		shpi_write_one_byte(client, SHPI_WRITE_DISP_C, 0x00);
-		mutex_unlock(&shpi->lock);
+                //shpi_write_one_byte(client, SHPI_WRITE_DISP_C, 0x00, 0);
+		
 		return 0;
 	}
 
@@ -357,12 +379,12 @@ static int shpi_backlight_update_status(struct backlight_device *bl)
 	{
 		if (shpi->blpower == 1)
 		{
-			mutex_lock(&shpi->lock);
-			shpi_write_one_byte(client, SHPI_WRITE_DISP_C, 0xFF);
+			
+			//shpi_write_one_byte(client, SHPI_WRITE_DISP_C, 0xFF, 0);
 			shpi->blpower = bl->props.power;
 			bl->props.brightness = shpi->last_brightness;
-			mutex_unlock(&shpi->lock);
 			shpi_backlight_set_value(bl);
+                        
 			return 0;
 		}
 		else
@@ -401,7 +423,7 @@ char *buf)
 	uint8_t buffer;
 
 	mutex_lock(&shpi->lock);
-	ret = shpi_read_one_byte(client, attr->index, &buffer);
+	ret = shpi_read_one_byte(client, attr->index, &buffer, 0);
 	mutex_unlock(&shpi->lock);
 
 	if (ret < 0)
@@ -432,7 +454,7 @@ char *buf)
         uint8_t buffer;
 
         mutex_lock(&shpi->lock);
-        ret = shpi_read_one_byte(client, SHPI_READ_FW_VERS, &buffer);
+        ret = shpi_read_one_byte(client, SHPI_READ_FW_VERS, &buffer, 0);
         mutex_unlock(&shpi->lock);
 
         if (ret < 0)
@@ -462,7 +484,7 @@ char *buf)
         uint8_t buffer;
 
         mutex_lock(&shpi->lock);
-        ret = shpi_read_one_byte(client, SHPI_READ_VENT_PWM, &buffer);
+        ret = shpi_read_one_byte(client, SHPI_READ_VENT_PWM, &buffer,0);
         mutex_unlock(&shpi->lock);
 
         if (ret < 0)
@@ -489,7 +511,7 @@ struct device_attribute *attr, char *buf)
 static ssize_t shpi_dfu_boot_show(struct device *dev,
 struct device_attribute *attr, char *buf)
 {
-        return sprintf(buf, "BE CAREFUL, WRITE 1 TO THIS FILE AND ATMEGA STARTS IN DFU MODUS FOR FLASHING, DISPLAY TURNS BLACK.\n");
+        return sprintf(buf, "0\n");
 }
 
 
@@ -530,7 +552,7 @@ static ssize_t shpi_read_sensor_show(struct device *dev, struct device_attribute
 	uint16_t buffer;
 
 	mutex_lock(&shpi->lock);
-	ret = shpi_read_two_bytes(client, attr->index, &buffer);
+	ret = shpi_read_two_bytes(client, attr->index, &buffer,0);
 
 	if (ret > 0)
 		shpi->buffer[get_buffer_pos(attr->index)] =
@@ -554,7 +576,7 @@ static ssize_t shpi_calc_current_show(struct device *dev, struct device_attribut
         uint16_t buffer;
 
         mutex_lock(&shpi->lock);
-        ret = shpi_read_two_bytes(client, SHPI_READ_A7_AVG, &buffer);
+        ret = shpi_read_two_bytes(client, SHPI_READ_A7_AVG, &buffer, 0);
 
         if (ret > 0)
                 shpi->buffer[get_buffer_pos(SHPI_READ_A7_AVG)] =
@@ -584,7 +606,7 @@ char *buf)
 
 	mutex_lock(&shpi->lock);
 
-	ret = shpi_read_two_bytes(client, attr->index, &buffer);
+	ret = shpi_read_two_bytes(client, attr->index, &buffer, 0);
 
 
 	if (SHPI_READ_TEMP == attr->index) {buffer = buffer * 558 - 142500;}
@@ -607,6 +629,7 @@ const char *buf, size_t count)
         struct shpi *shpi = dev_get_drvdata(dev);
         struct i2c_client *client = shpi->client;
         int ret;
+        uint8_t buffer;
         unsigned int readbit;
         ret = kstrtouint(buf, 10, &readbit);
         if (ret >=0)
@@ -614,8 +637,10 @@ const char *buf, size_t count)
                 if  (readbit < 256 && readbit >= 0)
                 {
                         mutex_lock(&shpi->lock);
-                        ret = shpi_write_one_byte(client, SHPI_WRITE_VENT_PWM, readbit);
+                        ret = shpi_write_one_byte(client, SHPI_WRITE_VENT_PWM, readbit, 0);
                         printk(KERN_INFO "SHPI: set fan : %d\n", readbit);
+                        ret = shpi_read_one_byte(client, SHPI_READ_VENT_PWM, &buffer, 0);
+                        printk(KERN_INFO "SHPI: read fan : %02x\n", buffer);
                         mutex_unlock(&shpi->lock);
                 }
                 else
@@ -643,8 +668,8 @@ const char *buf, size_t count)
                 if  (readbit == 1)
                 {
                         mutex_lock(&shpi->lock);
-                        ret = shpi_write_one_byte(client, SHPI_WRITE_DFU, 0xFF);
-                        printk(KERN_INFO "SHPI: enable dfu modus : %d\n", readbit);
+                        ret = shpi_write_one_byte(client, SHPI_WRITE_DFU, 0xFF, 0);
+                        printk(KERN_INFO "SHPI: enable dfu : %d\n", readbit);
                         mutex_unlock(&shpi->lock);
                 }
                 else
@@ -665,6 +690,7 @@ const char *buf, size_t count)
 	struct shpi *shpi = dev_get_drvdata(dev);
 	struct i2c_client *client = shpi->client;
 	int ret;
+        uint8_t buffer;
 	unsigned int readbit;
 	ret = kstrtouint(buf, 10, &readbit);
 	if (ret >=0)
@@ -672,16 +698,20 @@ const char *buf, size_t count)
 		if  (readbit == 1)
 		{
 			mutex_lock(&shpi->lock);
-			ret = shpi_write_one_byte(client, (attr->index + 0x80), 0xFF);
+			ret = shpi_write_one_byte(client, (attr->index + 0x80), 0xFF, 0);
 			printk(KERN_INFO "SHPI: set %s : ON\n", attr->dev_attr.attr.name);
+                        ret =  shpi_read_one_byte(client, attr->index, &buffer, 0);
+                        printk(KERN_INFO "SHPI: read %s : %02x\n", attr->dev_attr.attr.name, buffer);
 			mutex_unlock(&shpi->lock);
 		}
 		else if (readbit == 0)
 		{
 			mutex_lock(&shpi->lock);
-			ret = shpi_write_one_byte(client, (attr->index + 0x80), 0x00);
+			ret = shpi_write_one_byte(client, (attr->index + 0x80), 0x00, 0);
 			printk(KERN_INFO "SHPI: set %s: OFF\n", attr->dev_attr.attr.name);
-			mutex_unlock(&shpi->lock);
+			ret =  shpi_read_one_byte(client, attr->index, &buffer, 0);
+                        printk(KERN_INFO "SHPI: read %s : %02x\n", attr->dev_attr.attr.name, buffer);
+                        mutex_unlock(&shpi->lock);
 		}
 		else
 			return -EINVAL;
@@ -701,7 +731,7 @@ static SENSOR_DEVICE_ATTR_RW(relay1, shpi_relay, SHPI_READ_RELAY1);
 static SENSOR_DEVICE_ATTR_RW(relay2, shpi_relay, SHPI_READ_RELAY2);
 static SENSOR_DEVICE_ATTR_RW(relay3, shpi_relay, SHPI_READ_RELAY3);
 static SENSOR_DEVICE_ATTR_RW(gasheater_enable, shpi_relay, SHPI_READ_HWB);
-static SENSOR_DEVICE_ATTR_RW(buzzer, shpi_relay, SHPI_READ_BUZ);
+static SENSOR_DEVICE_ATTR_RW(buzzer1, shpi_relay, SHPI_READ_BUZ);
 static SENSOR_DEVICE_ATTR_RW(pwm1, shpi_vent_pwm, SHPI_READ_VENT_PWM);
 static SENSOR_DEVICE_ATTR_RO(in0_input, shpi_read_sensor, SHPI_READ_A0);
 static SENSOR_DEVICE_ATTR_RO(in1_input, shpi_read_sensor, SHPI_READ_A1);
@@ -732,7 +762,7 @@ static struct attribute *shpi_attrs[] =
 	&sensor_dev_attr_relay1.dev_attr.attr,
 	&sensor_dev_attr_relay2.dev_attr.attr,
 	&sensor_dev_attr_relay3.dev_attr.attr,
-        &sensor_dev_attr_buzzer.dev_attr.attr,
+        &sensor_dev_attr_buzzer1.dev_attr.attr,
         &sensor_dev_attr_gasheater_enable.dev_attr.attr,
 	&sensor_dev_attr_in0_input.dev_attr.attr,
 	&sensor_dev_attr_in1_input.dev_attr.attr,
