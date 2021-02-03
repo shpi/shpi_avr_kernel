@@ -122,11 +122,17 @@ static uint8_t BUFFER_ORDER[] =
 	SHPI_READ_A7_AVG,
 };
 
+
 struct shpi_platform_data
 {
 	struct device *fbdev;
-	unsigned int def_value;
+	int def_value;
+        const char *name;
 };
+
+
+
+
 
 struct shpi_led
 {
@@ -142,10 +148,10 @@ struct shpi
 	struct mutex lock;
 	unsigned long last_update;
 	uint16_t buffer[29];
-	struct shpi_platform_data *pdata;
+        struct device *fbdev;
+	//struct shpi_platform_data *pdata;
 	struct backlight_device *bl;
-	uint8_t last_brightness;
-	uint8_t blpower;
+	uint8_t brightness;
 	int num_leds;
 	struct shpi_led leds[];
 };
@@ -345,14 +351,12 @@ static int shpi_backlight_set_value(struct backlight_device *bl)
 	struct i2c_client *client = shpi->client;
 	int ret;
 	mutex_lock(&shpi->lock);
-	ret = shpi_write_one_byte(client, SHPI_WRITE_BACKLIGHT, bl->props.brightness, 0);
+	ret = shpi_write_one_byte(client, SHPI_WRITE_BACKLIGHT, shpi->brightness, 0);
 	mutex_unlock(&shpi->lock);
 
 	if (ret < 0)
 		return -EIO;
 
-	if (bl->props.brightness > 0)
-		shpi->last_brightness = bl->props.brightness;
 
 	return 0;
 }
@@ -361,47 +365,32 @@ static int shpi_backlight_set_value(struct backlight_device *bl)
 static int shpi_backlight_update_status(struct backlight_device *bl)
 {
 	struct shpi *shpi = bl_get_data(bl);
-	struct i2c_client *client = shpi->client;
+        shpi->brightness = bl->props.brightness;
+
 
 	if (bl->props.power != FB_BLANK_UNBLANK ||
 		bl->props.state & (BL_CORE_SUSPENDED | BL_CORE_FBBLANK))
+
 	{
-		bl->props.brightness = 0;
-		shpi->blpower = 1;
-		
-		shpi_backlight_set_value(bl);
-                //shpi_write_one_byte(client, SHPI_WRITE_DISP_C, 0x00, 0);
-		
-		return 0;
+		shpi->brightness = 0;
 	}
 
-	else
-	{
-		if (shpi->blpower == 1)
-		{
-			
-			//shpi_write_one_byte(client, SHPI_WRITE_DISP_C, 0xFF, 0);
-			shpi->blpower = bl->props.power;
-			bl->props.brightness = shpi->last_brightness;
-			shpi_backlight_set_value(bl);
-                        
-			return 0;
-		}
-		else
-		{
-			return shpi_backlight_set_value(bl);
-		}
-	}
+	return shpi_backlight_set_value(bl);
 }
 
 
-static int shpi_backlight_check_fb(struct backlight_device *bl,
-struct fb_info *info)
+static int shpi_backlight_check_fb(struct backlight_device *bl, struct fb_info *info)
 {
 	struct shpi *shpi = bl_get_data(bl);
 
-	return shpi->pdata->fbdev == NULL || shpi->pdata->fbdev == info->dev;
+	return shpi->fbdev == NULL || shpi->fbdev == info->dev;
 }
+
+
+
+
+
+
 
 
 static const struct backlight_ops shpi_backlight_ops =
@@ -827,18 +816,20 @@ const struct i2c_device_id *id)
 	if (!shpi)
 		return -ENOMEM;
 
+
+        if (pdata)
+		shpi->fbdev = pdata->fbdev;
+
 	shpi->client = client;
 
-	shpi->pdata = pdata;
+	//shpi->pdata = pdata;
 	shpi->num_leds = num_leds;
 	memset(&props, 0, sizeof(props));
 	props.type = BACKLIGHT_RAW;
 
 	props.max_brightness = 31;
 	props.brightness = 31;
-	shpi->blpower = 0;
-	shpi->last_brightness = 31;
-
+	shpi->brightness = 31;
 
 	mutex_init(&shpi->lock);
 
